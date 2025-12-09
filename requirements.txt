@@ -1,0 +1,5 @@
+streamlit
+notion-client
+# Pillow 是一個常用的圖像處理庫，如果您需要進行裁剪、調整大小等操作，就需要它。
+# 如果您的 AI 核心邏輯使用其他庫（例如 requests, opencv-python），也請在此加入。
+Pillow
