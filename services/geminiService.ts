@@ -13,54 +13,42 @@ const getBase64Data = (dataUrl: string): string => {
 };
 
 /**
- * Generates a product mockup by compositing multiple logos onto a product image.
+ * Generates a product mockup using a pre-composited image as a reference.
+ * This ensures exact placement of logos as defined by the user.
  */
 export const generateMockup = async (
-  product: Asset,
-  layers: { asset: Asset; placement: PlacedLayer }[],
-  instruction: string
+  compositeImage: string, // Base64 data URL of the canvas composite
+  instruction: string,
+  aspectRatio: string = "1:1",
+  imageSize: string = "1K"
 ): Promise<string> => {
   try {
-    // Create instance here to get latest key
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const model = 'gemini-3-pro-image-preview';
 
-    // 1. Add Product Base
+    // 1. Prepare the Composite Image
     const parts: any[] = [
       {
         inlineData: {
-          mimeType: product.mimeType,
-          data: getBase64Data(product.data),
+          mimeType: 'image/png',
+          data: getBase64Data(compositeImage),
         },
       },
     ];
 
-    // 2. Add All Logos
-    let layoutHints = "";
-    layers.forEach((layer, index) => {
-      parts.push({
-        inlineData: {
-          mimeType: layer.asset.mimeType,
-          data: getBase64Data(layer.asset.data),
-        },
-      });
-
-      // Construct simple positioning hint (assuming 0,0 is top-left)
-      const vPos = layer.placement.y < 33 ? "top" : layer.placement.y > 66 ? "bottom" : "center";
-      const hPos = layer.placement.x < 33 ? "left" : layer.placement.x > 66 ? "right" : "center";
-      
-      layoutHints += `\n- Logo ${index + 1}: Place at ${vPos}-${hPos} area (approx coords: ${Math.round(layer.placement.x)}% x, ${Math.round(layer.placement.y)}% y). Scale: ${layer.placement.scale}.`;
-    });
-
-    // 3. Add Instructions
+    // 2. Construct the Prompt
+    // We treat this as an Image-to-Image task: "Make this rough composite look real"
     const finalPrompt = `
-    User Instructions: ${instruction}
+    Input: A rough design composite of a product with logos placed on it.
+    Task: Transform this composite into a high-quality, photorealistic product mockup.
     
-    Layout Guidance based on user's rough placement on canvas:
-    ${layoutHints}
-
-    System Task: Composite the provided logo images (images 2-${layers.length + 1}) onto the first image (the product) to create a realistic product mockup. 
-    Follow the Layout Guidance for positioning if provided, but prioritize realistic surface warping, lighting, and perspective blending.
+    Instructions:
+    - ${instruction || "Apply realistic lighting and materials."}
+    - KEEP the logos in the EXACT position, scale, and rotation as shown in the input image. Do not move them.
+    - Apply realistic surface interaction: the logos should look like they are printed, embroidered, or embossed on the product material (warping, texture, lighting).
+    - Ensure the lighting and shadows are consistent across the product and the logos.
+    - Background should be clean or match the context of the product.
+    
     Output ONLY the resulting image.
     `;
 
@@ -71,6 +59,10 @@ export const generateMockup = async (
       contents: { parts },
       config: {
         responseModalities: [Modality.IMAGE],
+        imageConfig: {
+            aspectRatio: aspectRatio,
+            imageSize: imageSize
+        }
       },
     });
 
@@ -93,7 +85,12 @@ export const generateMockup = async (
 /**
  * Generates a new logo or product base from scratch using text.
  */
-export const generateAsset = async (prompt: string, type: 'logo' | 'product'): Promise<string> => {
+export const generateAsset = async (
+  prompt: string, 
+  type: 'logo' | 'product',
+  aspectRatio: string = "1:1",
+  imageSize: string = "1K"
+): Promise<string> => {
    try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const model = 'gemini-3-pro-image-preview';
@@ -109,6 +106,10 @@ export const generateAsset = async (prompt: string, type: 'logo' | 'product'): P
         },
         config: {
             responseModalities: [Modality.IMAGE],
+            imageConfig: {
+              aspectRatio: aspectRatio,
+              imageSize: imageSize
+            }
         }
     });
 

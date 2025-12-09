@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 import React, { useState, useEffect, useRef } from 'react';
-import { Layout, Box, Image as ImageIcon, Wand2, Layers, Plus, Trash2, Download, History, Sparkles, Shirt, Move, Maximize, RotateCcw, Zap, Cpu, ArrowRight, Globe, Scan, Camera, Aperture, Repeat, SprayCan, Triangle, Package, Menu, X, Check, MousePointer2, Languages } from 'lucide-react';
+import { Layout, Box, Image as ImageIcon, Wand2, Layers, Plus, Trash2, Download, History, Sparkles, Shirt, Move, Maximize, RotateCcw, Zap, Cpu, ArrowRight, Globe, Scan, Camera, Aperture, Repeat, SprayCan, Triangle, Package, Menu, X, Check, MousePointer2, Languages, User as UserIcon, LogOut, ChevronDown } from 'lucide-react';
 import { Button } from './components/Button';
 import { FileUploader } from './components/FileUploader';
 import { generateMockup, generateAsset, generateRealtimeComposite } from './services/geminiService';
-import { Asset, GeneratedMockup, AppView, LoadingState, PlacedLayer } from './types';
+import { Asset, GeneratedMockup, AppView, LoadingState, PlacedLayer, User } from './types';
 import { useApiKey } from './hooks/useApiKey';
 import ApiKeyDialog from './components/ApiKeyDialog';
 
@@ -74,10 +74,14 @@ const TRANSLATIONS = {
     uploadType: "Upload {0}",
     clickToAddLogo: "Click to add. Drag on canvas to move. Scroll to resize.",
     product: "Product",
-    logo: "Logo"
+    logo: "Logo",
+    outputRatio: "Output Ratio",
+    signInGoogle: "Sign in with Google",
+    signOut: "Sign out",
+    guest: "Guest"
   },
   zh: {
-    appTitle: "Nobee SKU 圖形助手",
+    appTitle: "Nobee SKU助手",
     dashboard: "儀表板",
     assets: "素材",
     studio: "工作室",
@@ -123,7 +127,7 @@ const TRANSLATIONS = {
     onCanvas: "在畫布上",
     selectProductToStart: "選擇一個產品開始設計",
     loadingAnalysis: "正在分析合成幾何結構...",
-    mobileFooter: "Nobee SKU 圖形助手 行動版 v1.0",
+    mobileFooter: "Nobee SKU助手 行動版 v1.0",
     creditsCount: "點數：∞",
     noMockups: "尚無樣機",
     createFirst: "在工作室創建您的第一個設計",
@@ -136,11 +140,23 @@ const TRANSLATIONS = {
     uploadType: "上傳 {0}",
     clickToAddLogo: "點擊添加。在畫布上拖曳移動。滾動縮放。",
     product: "產品",
-    logo: "Logo"
+    logo: "Logo",
+    outputRatio: "輸出比例",
+    signInGoogle: "使用 Google 登入",
+    signOut: "登出",
+    guest: "訪客"
   }
 };
 
 type Lang = 'en' | 'zh';
+
+// --- Constants ---
+const RATIO_OPTIONS = [
+  { label: '1:1 (2048×2048)', aspect: '1:1', width: 2048, height: 2048, size: '2K' },
+  { label: '4:3 (1620x1200)', aspect: '4:3', width: 1620, height: 1200, size: '2K' },
+  { label: '16:9 (3840x2160)(4K)', aspect: '16:9', width: 3840, height: 2160, size: '4K' },
+  { label: '9:16 (1440x2560)', aspect: '9:16', width: 1440, height: 2560, size: '2K' },
+];
 
 // --- Brand Components ---
 
@@ -162,6 +178,15 @@ const NobeeLogo = ({ className = "w-8 h-8" }: { className?: string }) => (
     {/* Eyes */}
     <ellipse cx="38" cy="52" rx="7" ry="10" fill="white" />
     <ellipse cx="62" cy="52" rx="7" ry="10" fill="white" />
+  </svg>
+);
+
+const GoogleIcon = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
+    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
   </svg>
 );
 
@@ -293,6 +318,7 @@ const AssetSection = ({
   const [mode, setMode] = useState<'upload' | 'generate'>('upload');
   const [genPrompt, setGenPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [selectedRatioIndex, setSelectedRatioIndex] = useState(0);
   const t = TRANSLATIONS[lang];
 
   const typeLabel = type === 'product' ? t.product : t.logo;
@@ -305,7 +331,8 @@ const AssetSection = ({
 
     setIsGenerating(true);
     try {
-      const b64 = await generateAsset(genPrompt, type);
+      const selectedOption = RATIO_OPTIONS[selectedRatioIndex];
+      const b64 = await generateAsset(genPrompt, type, selectedOption.aspect, selectedOption.size);
       onAdd({
         id: Math.random().toString(36).substring(7),
         type,
@@ -385,6 +412,20 @@ const AssetSection = ({
                 placeholder={t.describePrompt.replace('{0}', typeLabel)}
                 className="w-full bg-zinc-50 border border-zinc-300 rounded-lg p-3 text-base text-zinc-900 focus:ring-2 focus:ring-[#eac415] resize-none h-24 placeholder:text-zinc-400 focus:border-[#eac415] focus:outline-none"
               />
+              
+              <div>
+                <label className="text-xs font-medium text-zinc-500 mb-1.5 block">{t.outputRatio}</label>
+                <select 
+                  className="w-full bg-zinc-50 border border-zinc-300 rounded-lg p-2 text-sm text-zinc-900 focus:ring-2 focus:ring-[#eac415] focus:border-[#eac415] outline-none"
+                  value={selectedRatioIndex}
+                  onChange={(e) => setSelectedRatioIndex(Number(e.target.value))}
+                >
+                  {RATIO_OPTIONS.map((opt, idx) => (
+                    <option key={idx} value={idx}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+
               <Button 
                 onClick={handleGenerate} 
                 isLoading={isGenerating} 
@@ -414,6 +455,11 @@ export default function App() {
   const [generatedMockups, setGeneratedMockups] = useState<GeneratedMockup[]>([]);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [selectedMockup, setSelectedMockup] = useState<GeneratedMockup | null>(null); // State for lightbox
+  const [user, setUser] = useState<User | null>(null);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  
+  // Studio State
+  const [studioRatioIndex, setStudioRatioIndex] = useState(0);
 
   // Intro Timer
   useEffect(() => {
@@ -431,6 +477,41 @@ export default function App() {
 
   // API Key Management
   const { showApiKeyDialog, setShowApiKeyDialog, validateApiKey, handleApiKeyDialogContinue } = useApiKey();
+
+  // Handle Login (Simulated)
+  const handleGoogleLogin = () => {
+    // In a real application, you would use:
+    // google.accounts.id.prompt(); 
+    // And handle the callback. Since we don't have a specific Client ID configured
+    // for this environment, we simulate a successful login.
+    const mockUser: User = {
+      id: '12345',
+      name: 'Demo User',
+      email: 'user@example.com',
+      picture: 'https://lh3.googleusercontent.com/a/default-user=s96-c', // Generic Google User Image
+    };
+    setUser(mockUser);
+    setIsUserMenuOpen(false);
+    
+    // Attempt to initialize real SDK if Client ID was present (Logic Placeholder)
+    /*
+    if (window.google) {
+      window.google.accounts.id.initialize({
+        client_id: "YOUR_GOOGLE_CLIENT_ID",
+        callback: (response: any) => {
+           // Decode JWT and setUser
+        }
+      });
+      window.google.accounts.id.prompt();
+    }
+    */
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    setIsUserMenuOpen(false);
+    // if (window.google) window.google.accounts.id.disableAutoSelect();
+  };
 
   // API Error Handling Logic
   const handleApiError = (error: any) => {
@@ -572,43 +653,102 @@ export default function App() {
     };
   }, [draggedItem]);
 
+  // -- Internal Canvas Composite Generation --
+  const createCompositeImage = async (product: Asset, layers: PlacedLayer[], width: number, height: number): Promise<string> => {
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return resolve('');
+
+      // Fill background white
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+
+      const loadImage = (src: string) => new Promise<HTMLImageElement>((res) => {
+        const img = new Image();
+        img.onload = () => res(img);
+        img.src = src;
+      });
+
+      // 1. Draw Product (Object Contain style)
+      loadImage(product.data).then(async (prodImg) => {
+        // Calculate contain dimensions
+        const scale = Math.min(width / prodImg.width, height / prodImg.height);
+        const w = prodImg.width * scale;
+        const h = prodImg.height * scale;
+        const x = (width - w) / 2;
+        const y = (height - h) / 2;
+        
+        ctx.drawImage(prodImg, x, y, w, h);
+
+        // 2. Draw Layers
+        // Layers are positioned based on % of the Canvas size, matching the UI
+        for (const layer of layers) {
+          const asset = assets.find(a => a.id === layer.assetId);
+          if (asset) {
+            const logoImg = await loadImage(asset.data);
+            
+            // UI implementation: width is 15% of container width (relative)
+            // But we can just use the natural ratio if we want, but let's try to match UI visual
+            // In UI: width: '15%' of container
+            const logoW = width * 0.15 * layer.scale;
+            const logoH = logoW * (logoImg.height / logoImg.width); // Maintain aspect
+
+            // x, y are percentages of center point
+            const lx = (layer.x / 100) * width;
+            const ly = (layer.y / 100) * height;
+
+            ctx.save();
+            ctx.translate(lx, ly);
+            ctx.rotate((layer.rotation * Math.PI) / 180);
+            ctx.drawImage(logoImg, -logoW / 2, -logoH / 2, logoW, logoH);
+            ctx.restore();
+          }
+        }
+
+        resolve(canvas.toDataURL('image/png'));
+      });
+    });
+  };
 
   const handleGenerate = async () => {
-    // We don't return early for empty selections here so we can give better user feedback
-    if (!selectedProductId && placedLogos.length === 0) {
-        // Although button is disabled, safety check
-        return;
-    }
+    if (!selectedProductId && placedLogos.length === 0) return;
     
     const product = assets.find(a => a.id === selectedProductId);
     if (!product) {
         alert("Selected product not found. Please select a product.");
-        // Deselect the invalid ID so the UI updates
         setSelectedProductId(null);
         return;
     }
 
-    // Prepare all layers
-    const layers = placedLogos.map(layer => {
-        const asset = assets.find(a => a.id === layer.assetId);
-        return asset ? { asset, placement: layer } : null;
-    }).filter(Boolean) as { asset: Asset, placement: PlacedLayer }[];
-
-    if (layers.length === 0) {
+    if (placedLogos.length === 0) {
          alert("No valid logos found on canvas. Please add a logo.");
          return;
     }
 
-    // Check API Key before proceeding
-    if (!(await validateApiKey())) {
-      return;
-    }
+    if (!(await validateApiKey())) return;
 
     const currentPrompt = prompt;
+    const selectedRatio = RATIO_OPTIONS[studioRatioIndex];
 
     setLoading({ isGenerating: true, message: t.loadingAnalysis });
     try {
-      const resultImage = await generateMockup(product, layers, currentPrompt);
+      // Create the composite image for accurate placement
+      const compositeB64 = await createCompositeImage(
+        product, 
+        placedLogos, 
+        selectedRatio.width, 
+        selectedRatio.height
+      );
+
+      const resultImage = await generateMockup(
+        compositeB64, 
+        currentPrompt, 
+        selectedRatio.aspect, 
+        selectedRatio.size
+      );
       
       const newMockup: GeneratedMockup = {
         id: Math.random().toString(36).substring(7),
@@ -632,6 +772,9 @@ export default function App() {
   const toggleLang = () => {
     setLang(l => l === 'en' ? 'zh' : 'en');
   };
+
+  // Calculate canvas aspect ratio for CSS
+  const currentAspectRatio = RATIO_OPTIONS[studioRatioIndex].aspect.replace(':', '/');
 
   return (
     <div className="min-h-screen bg-white text-zinc-900 font-sans flex overflow-hidden relative">
@@ -691,15 +834,20 @@ export default function App() {
       <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b border-zinc-200 flex items-center justify-between px-4 z-50">
         <div className="flex items-center">
           <NobeeLogo className="w-8 h-8 mr-2" />
-          <span className="font-bold text-lg text-zinc-900">{t.appTitle}</span>
+          <span className="font-bold text-lg text-zinc-900 truncate max-w-[150px]">{t.appTitle}</span>
         </div>
         <div className="flex items-center gap-2">
-          <button 
-            onClick={toggleLang}
-            className="p-2 text-zinc-600 hover:text-black rounded-full hover:bg-zinc-100"
-          >
-            <Globe size={20} />
-          </button>
+           {/* Mobile User Icon */}
+           {user ? (
+             <div className="w-8 h-8 rounded-full overflow-hidden border border-zinc-200" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+                <img src={user.picture} alt={user.name} className="w-full h-full object-cover" />
+             </div>
+           ) : (
+             <button onClick={handleGoogleLogin} className="p-2 text-zinc-600 hover:text-black">
+                <GoogleIcon />
+             </button>
+           )}
+
           <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-zinc-600 hover:text-black">
             {isMobileMenuOpen ? <X /> : <Menu />}
           </button>
@@ -709,6 +857,19 @@ export default function App() {
       {/* Mobile Menu Dropdown */}
       {isMobileMenuOpen && (
         <div className="md:hidden fixed inset-0 top-16 z-40 bg-white/95 backdrop-blur-xl p-4 animate-fade-in flex flex-col">
+          {user && (
+            <div className="mb-4 p-4 bg-zinc-50 rounded-xl border border-zinc-100 flex items-center gap-3">
+               <img src={user.picture} alt={user.name} className="w-10 h-10 rounded-full" />
+               <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm text-zinc-900 truncate">{user.name}</p>
+                  <p className="text-xs text-zinc-500 truncate">{user.email}</p>
+               </div>
+               <button onClick={handleLogout} className="p-2 text-red-500 hover:bg-red-50 rounded-lg">
+                  <LogOut size={18} />
+               </button>
+            </div>
+          )}
+
           <div className="space-y-2">
             <NavButton 
               icon={<Layout size={18} />} 
@@ -737,6 +898,16 @@ export default function App() {
               number={3}
               onClick={() => { setView('gallery'); setIsMobileMenuOpen(false); }} 
             />
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-zinc-200">
+             <button 
+                onClick={() => { toggleLang(); setIsMobileMenuOpen(false); }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-zinc-600 hover:bg-zinc-100 rounded-lg"
+              >
+                <Globe size={18} />
+                <span className="font-medium text-sm">{lang === 'en' ? 'Switch to Traditional Chinese' : '切換至英文'}</span>
+              </button>
           </div>
           
           <div className="mt-auto pb-8 border-t border-zinc-200 pt-6">
@@ -790,14 +961,15 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto relative pt-16 md:pt-0">
-        {/* Top Bar */}
-        <div className="sticky top-0 z-40 h-16 bg-white/80 backdrop-blur-md border-b border-zinc-200 flex items-center justify-between px-8">
+        {/* Top Bar (Desktop) */}
+        <div className="sticky top-0 z-40 h-16 bg-white/80 backdrop-blur-md border-b border-zinc-200 hidden md:flex items-center justify-between px-8">
            <div className="text-sm text-zinc-500 breadcrumbs">
               <span className="opacity-50">App</span> 
               <span className="mx-2">/</span> 
               <span className="text-zinc-900 capitalize font-medium">{t[view] || view}</span>
            </div>
-           <div className="flex items-center gap-4">
+           
+           <div className="flex items-center gap-3">
               <button 
                 onClick={toggleLang}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-zinc-600 hover:bg-zinc-100 hover:text-black transition-colors"
@@ -806,7 +978,51 @@ export default function App() {
                 <Globe size={18} />
                 <span className="text-sm font-medium">{lang === 'en' ? 'EN' : '繁中'}</span>
               </button>
-              <Button size="sm" variant="ghost" icon={<Sparkles size={16}/>}>{t.creditsCount}</Button>
+
+              <div className="h-6 w-px bg-zinc-200 mx-1"></div>
+
+              {/* Login Portal */}
+              {user ? (
+                <div className="relative">
+                  <button 
+                    onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-zinc-50 transition-colors border border-transparent hover:border-zinc-200"
+                  >
+                    <div className="w-7 h-7 rounded-full overflow-hidden border border-zinc-200">
+                      <img src={user.picture} alt={user.name} className="w-full h-full object-cover" />
+                    </div>
+                    <ChevronDown size={14} className="text-zinc-400" />
+                  </button>
+                  
+                  {isUserMenuOpen && (
+                    <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-xl border border-zinc-100 py-2 animate-fade-in z-50">
+                        <div className="px-4 py-2 border-b border-zinc-50 mb-1">
+                          <p className="font-medium text-sm text-zinc-900">{user.name}</p>
+                          <p className="text-xs text-zinc-500 truncate">{user.email}</p>
+                        </div>
+                        <button 
+                          onClick={handleLogout}
+                          className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors"
+                        >
+                          <LogOut size={16} />
+                          {t.signOut}
+                        </button>
+                    </div>
+                  )}
+                  {/* Click outside closer would go here in full imp */}
+                  {isUserMenuOpen && (
+                    <div className="fixed inset-0 z-40" onClick={() => setIsUserMenuOpen(false)}></div>
+                  )}
+                </div>
+              ) : (
+                <button 
+                  onClick={handleGoogleLogin}
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-700 font-medium text-sm rounded-full transition-all shadow-sm hover:shadow group"
+                >
+                  <GoogleIcon />
+                  <span className="group-hover:text-black">{t.signInGoogle}</span>
+                </button>
+              )}
            </div>
         </div>
 
@@ -950,6 +1166,20 @@ export default function App() {
                          value={prompt}
                          onChange={(e) => setPrompt(e.target.value)}
                       />
+
+                      {/* Studio Output Ratio Selector */}
+                      <div className="mt-4">
+                        <label className="text-xs font-medium text-zinc-500 mb-1.5 block">{t.outputRatio}</label>
+                        <select 
+                          className="w-full bg-zinc-50 border border-zinc-300 rounded-lg p-2 text-sm text-zinc-900 focus:ring-2 focus:ring-[#eac415] focus:border-[#eac415] outline-none"
+                          value={studioRatioIndex}
+                          onChange={(e) => setStudioRatioIndex(Number(e.target.value))}
+                        >
+                          {RATIO_OPTIONS.map((opt, idx) => (
+                            <option key={idx} value={idx}>{opt.label}</option>
+                          ))}
+                        </select>
+                      </div>
                    </div>
 
                    <Button 
@@ -965,7 +1195,7 @@ export default function App() {
                 </div>
 
                 {/* Right Preview - Canvas (Top on Mobile) */}
-                <div className="h-[45vh] lg:h-auto lg:flex-1 glass-panel rounded-2xl flex items-center justify-center bg-zinc-100 relative overflow-hidden select-none flex-shrink-0 border border-zinc-200 shadow-inner">
+                <div className="h-[45vh] lg:h-auto lg:flex-1 glass-panel rounded-2xl flex items-center justify-center bg-zinc-100 relative overflow-hidden select-none flex-shrink-0 border border-zinc-200 shadow-inner p-8">
                    {loading.isGenerating && (
                       <div className="absolute inset-0 z-20 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center">
                          <div className="w-16 h-16 border-4 border-[#eac415] border-t-transparent rounded-full animate-spin mb-4"></div>
@@ -976,12 +1206,18 @@ export default function App() {
                    {selectedProductId ? (
                       <div 
                          ref={canvasRef}
-                         className="relative w-full h-full max-h-[600px] p-4"
+                         className="relative bg-white shadow-xl transition-all duration-300"
+                         style={{ 
+                           aspectRatio: currentAspectRatio,
+                           height: '100%',
+                           maxHeight: '100%',
+                           maxWidth: '100%'
+                         }}
                       >
                          {/* Product Base */}
                          <img 
                             src={assets.find(a => a.id === selectedProductId)?.data} 
-                            className="w-full h-full object-contain drop-shadow-xl pointer-events-none select-none" 
+                            className="w-full h-full object-contain pointer-events-none select-none" 
                             alt="Preview" 
                             draggable={false}
                          />

@@ -29,6 +29,13 @@ export interface GeneratedMockup {
   productId?: string;
 }
 
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  picture: string;
+}
+
 export type AppView = 'dashboard' | 'assets' | 'studio' | 'gallery' | 'try-on';
 
 export interface LoadingState {
